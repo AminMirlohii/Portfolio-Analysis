@@ -33,3 +33,24 @@ def volatility(returns):
             return 0.0
         daily_std = statistics.stdev(r)
     return daily_std * math.sqrt(252.0)
+
+
+def max_drawdown(values):
+    """
+    Largest drop from a running peak, as a fraction in [0, 1].
+    `values` may be a list or a pandas Series.
+    """
+    if hasattr(values, "values"):
+        seq = values.values
+    else:
+        seq = list(values)
+    if len(seq) == 0:
+        return 0.0
+    peak = float(seq[0])
+    worst = 0.0
+    for v in seq:
+        v = float(v)
+        peak = max(peak, v)
+        if peak > 0:
+            worst = max(worst, (peak - v) / peak)
+    return worst
