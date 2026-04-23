@@ -39,7 +39,7 @@ def fetch_benchmark(years):
 def simulate_benchmark(years):
     """
     Placeholder benchmark simulation.
-    Adds a benchmark_value column starting at 10000.
+    Adds return from price and compounding benchmark_value from 10000.
     """
     benchmark_df = fetch_benchmark(years).copy()
     if benchmark_df.empty:
@@ -48,6 +48,7 @@ def simulate_benchmark(years):
         return benchmark_df
 
     benchmark_df["return"] = benchmark_df["price"].pct_change()
-    benchmark_df["benchmark_value"] = 10000.0
-    benchmark_df.loc[benchmark_df.index[0], "benchmark_value"] = 10000.0
+    # First day has no prior return; treat as 0 so compounding starts at 10000.
+    rets = benchmark_df["return"].fillna(0.0)
+    benchmark_df["benchmark_value"] = 10000.0 * (1.0 + rets).cumprod()
     return benchmark_df
