@@ -75,3 +75,16 @@ def sharpe_ratio(returns):
     if std_r == 0.0:
         return 0.0
     return mean_r / std_r
+
+
+def calculate_metrics(values, returns, years):
+    """
+    Aggregate portfolio metrics. Not wired to the API.
+    `values` and `returns` may be list-like or Series.
+    """
+    return {
+        "annual_return": annualized_return(values, years),
+        "volatility": volatility(returns),
+        "drawdown": max_drawdown(values),
+        "sharpe": sharpe_ratio(returns),
+    }
