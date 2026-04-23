@@ -1,0 +1,25 @@
+body {
+  margin: 1rem;
+  font-family: system-ui, sans-serif;
+}
+
+label {
+  display: block;
+  margin-top: 0.5rem;
+}
+
+table {
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+}
+
+th,
+td {
+  border: 1px solid #ccc;
+  padding: 0.25rem 0.5rem;
+}
+
+.error {
+  color: #a00;
+  margin-top: 0.5rem;
+}

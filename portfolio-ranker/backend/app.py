@@ -4,6 +4,7 @@ Flask application entry point for Portfolio Ranker API.
 
 import pandas as pd
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 from data_fetcher import simulate_benchmark
 from metrics import calculate_metrics
@@ -44,6 +45,11 @@ def _aligned_curves(simulation_result, benchmark_result):
 
 
 app = Flask(__name__)
+CORS(
+    app,
+    origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    methods=["GET", "POST", "OPTIONS"],
+)
 
 
 @app.route("/")
