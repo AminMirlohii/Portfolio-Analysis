@@ -54,3 +54,24 @@ def max_drawdown(values):
         if peak > 0:
             worst = max(worst, (peak - v) / peak)
     return worst
+
+
+def sharpe_ratio(returns):
+    """
+    Mean return over standard deviation, risk-free rate = 0.
+    `returns` may be a list or a pandas Series.
+    """
+    if hasattr(returns, "mean") and hasattr(returns, "std"):
+        if len(returns) < 2:
+            return 0.0
+        mean_r = float(returns.mean())
+        std_r = float(returns.std())
+    else:
+        r = list(returns)
+        if len(r) < 2:
+            return 0.0
+        mean_r = statistics.mean(r)
+        std_r = statistics.stdev(r)
+    if std_r == 0.0:
+        return 0.0
+    return mean_r / std_r
