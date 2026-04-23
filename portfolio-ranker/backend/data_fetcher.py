@@ -34,3 +34,11 @@ def fetch_benchmark(years):
     Returns DataFrame with columns: date, price, dividend.
     """
     return fetch_asset_data("SPY", years)
+
+
+def simulate_benchmark(years):
+    """
+    Placeholder benchmark simulation.
+    Returns raw benchmark data without calculations.
+    """
+    return fetch_benchmark(years)
