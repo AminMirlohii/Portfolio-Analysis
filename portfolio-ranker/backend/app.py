@@ -2,12 +2,46 @@
 Flask application entry point for Portfolio Ranker API.
 """
 
+import pandas as pd
 from flask import Flask, request, jsonify
 
 from data_fetcher import simulate_benchmark
 from metrics import calculate_metrics
 from portfolio import validate_portfolio_input, simulate_portfolio
 from ranker import rank_portfolio
+
+
+def _day_key(series):
+    """Calendar day (UTC) for merging portfolio vs benchmark dates."""
+    return pd.to_datetime(series, utc=True).dt.normalize()
+
+
+def _curve_from_df(df, date_col, value_col):
+    """One series → [{date, value}, ...] with YYYY-MM-DD dates."""
+    dates = _day_key(df[date_col]).dt.strftime("%Y-%m-%d")
+    return [{"date": d, "value": float(v)} for d, v in zip(dates, df[value_col])]
+
+
+def _aligned_curves(simulation_result, benchmark_result):
+    """
+    Prefer inner-join on calendar day so both curves share the same timeline.
+    If no overlap, fall back to formatting each curve separately.
+    """
+    s = simulation_result.copy()
+    b = benchmark_result.copy()
+    s["_day"] = _day_key(s["date"])
+    b["_day"] = _day_key(b["date"])
+    merged = s.merge(b[["_day", "benchmark_value"]], on="_day", how="inner").sort_values("_day")
+    if merged.empty:
+        return (
+            _curve_from_df(simulation_result, "date", "portfolio_value"),
+            _curve_from_df(benchmark_result, "date", "benchmark_value"),
+        )
+    dates = merged["_day"].dt.strftime("%Y-%m-%d")
+    portfolio_curve = [{"date": d, "value": float(v)} for d, v in zip(dates, merged["portfolio_value"])]
+    benchmark_curve = [{"date": d, "value": float(v)} for d, v in zip(dates, merged["benchmark_value"])]
+    return portfolio_curve, benchmark_curve
+
 
 app = Flask(__name__)
 
@@ -46,6 +80,7 @@ def analyze():
     )
     ranking_result = rank_portfolio(metrics_result)
     benchmark_result = simulate_benchmark(years)
+    portfolio_curve, benchmark_curve = _aligned_curves(simulation_result, benchmark_result)
     return jsonify(
         {
             "score": ranking_result["score"],
@@ -54,6 +89,8 @@ def analyze():
             "volatility": metrics_result["volatility"],
             "drawdown": metrics_result["drawdown"],
             "sharpe": metrics_result["sharpe"],
+            "portfolio_curve": portfolio_curve,
+            "benchmark_curve": benchmark_curve,
         }
     ), 200
 
