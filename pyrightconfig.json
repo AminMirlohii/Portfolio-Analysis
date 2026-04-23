@@ -1,0 +1,5 @@
+{
+  "venvPath": "portfolio-ranker",
+  "venv": ".venv",
+  "include": ["portfolio-ranker/backend"]
+}

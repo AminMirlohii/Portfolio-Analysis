@@ -1,0 +1,3 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/portfolio-ranker/.venv/bin/python"
+}
