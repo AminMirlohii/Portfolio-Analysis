@@ -38,17 +38,14 @@ def fetch_benchmark(years):
 
 def simulate_benchmark(years):
     """
-    Placeholder benchmark simulation.
-    Adds return from price and compounding benchmark_value from 10000.
+    Benchmark time series: same shape as portfolio simulate output.
+    Returns DataFrame with columns: date, benchmark_value (starting 10000, compounded from price).
     """
     benchmark_df = fetch_benchmark(years).copy()
     if benchmark_df.empty:
-        benchmark_df["benchmark_value"] = pd.Series(dtype="float64")
-        benchmark_df["return"] = pd.Series(dtype="float64")
-        return benchmark_df
+        return pd.DataFrame(columns=["date", "benchmark_value"])
 
     benchmark_df["return"] = benchmark_df["price"].pct_change()
-    # First day has no prior return; treat as 0 so compounding starts at 10000.
     rets = benchmark_df["return"].fillna(0.0)
     benchmark_df["benchmark_value"] = 10000.0 * (1.0 + rets).cumprod()
-    return benchmark_df
+    return benchmark_df[["date", "benchmark_value"]].copy()
