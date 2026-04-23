@@ -44,8 +44,10 @@ def simulate_benchmark(years):
     benchmark_df = fetch_benchmark(years).copy()
     if benchmark_df.empty:
         benchmark_df["benchmark_value"] = pd.Series(dtype="float64")
+        benchmark_df["return"] = pd.Series(dtype="float64")
         return benchmark_df
 
+    benchmark_df["return"] = benchmark_df["price"].pct_change()
     benchmark_df["benchmark_value"] = 10000.0
     benchmark_df.loc[benchmark_df.index[0], "benchmark_value"] = 10000.0
     return benchmark_df
