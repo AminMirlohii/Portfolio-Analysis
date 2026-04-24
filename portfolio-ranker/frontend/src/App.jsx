@@ -34,27 +34,61 @@ function fmtNum(x, decimals = 4) {
   return Number(x).toFixed(decimals);
 }
 
-function validateRows(rows) {
+function modeLabel(mode) {
+  if (mode === "dollar") return "Amount (USD)";
+  return "Allocation units";
+}
+
+function buildPortfolioInput(rows, mode, totalValue) {
   const assets = rows
     .map((row) => ({
       ticker: String(row.ticker || "").trim().toUpperCase(),
-      weight: parseFloat(row.weight),
+      value: parseFloat(row.value),
     }))
     .filter((row) => row.ticker.length > 0);
 
   if (assets.length < 1) {
     return { ok: false, message: "Add at least one asset with a ticker." };
   }
+
   for (const a of assets) {
-    if (Number.isNaN(a.weight) || a.weight <= 0) {
-      return { ok: false, message: "Each asset must have a weight greater than 0." };
-    }
+    if (Number.isNaN(a.value)) return { ok: false, message: "All allocations must be numeric." };
+    if (a.value < 0) return { ok: false, message: "Allocations cannot be negative." };
   }
-  return { ok: true, assets };
+
+  const positives = assets.filter((a) => a.value > 0);
+  if (positives.length < 1) {
+    return { ok: false, message: "At least one asset must have value greater than 0." };
+  }
+
+  const sum = positives.reduce((acc, a) => acc + a.value, 0);
+  if (sum <= 0) return { ok: false, message: "Total allocation must be greater than 0." };
+
+  const portfolio = positives.map((a) => ({ ticker: a.ticker, weight: a.value / sum }));
+
+  if (mode !== "total") {
+    return { ok: true, portfolio, implied: [] };
+  }
+
+  const total = parseFloat(totalValue);
+  if (Number.isNaN(total) || total <= 0) {
+    return { ok: false, message: "Total portfolio value must be greater than 0 in total value mode." };
+  }
+
+  const implied = portfolio.map((a) => ({
+    ticker: a.ticker,
+    weight: a.weight,
+    amount: a.weight * total,
+  }));
+
+  return { ok: true, portfolio, implied };
 }
 
 export default function App() {
-  const [rows, setRows] = useState([{ ticker: "AAPL", weight: "1" }]);
+  const [rows, setRows] = useState([{ ticker: "AAPL", value: "100" }]);
+  const [inputMode, setInputMode] = useState("percentage");
+  const [totalValue, setTotalValue] = useState("10000");
+  const [impliedAllocations, setImpliedAllocations] = useState([]);
   const [years, setYears] = useState(5);
   const [dividends, setDividends] = useState(true);
   const [result, setResult] = useState(null);
@@ -75,7 +109,7 @@ export default function App() {
   }
 
   function addRow() {
-    setRows((r) => [...r, { ticker: "", weight: "" }]);
+    setRows((r) => [...r, { ticker: "", value: "" }]);
   }
 
   function removeRow(i) {
@@ -85,15 +119,18 @@ export default function App() {
   async function handleAnalyze() {
     setError(null);
     setResult(null);
+    setImpliedAllocations([]);
 
-    const check = validateRows(rows);
+    const check = buildPortfolioInput(rows, inputMode, totalValue);
     if (!check.ok) {
       setError(check.message);
       return;
     }
 
+    setImpliedAllocations(check.implied || []);
+
     const body = {
-      portfolio: check.assets,
+      portfolio: check.portfolio,
       years: Number(years),
       dividends: Boolean(dividends),
     };
@@ -119,11 +156,49 @@ export default function App() {
       <main className="dashboard">
         <section className="card input-panel">
           <h2>Portfolio Input</h2>
+
+          <div className="mode-toggle">
+            <button
+              type="button"
+              className={inputMode === "percentage" ? "ghost-btn active" : "ghost-btn"}
+              onClick={() => setInputMode("percentage")}
+            >
+              Percentage mode
+            </button>
+            <button
+              type="button"
+              className={inputMode === "dollar" ? "ghost-btn active" : "ghost-btn"}
+              onClick={() => setInputMode("dollar")}
+            >
+              Dollar amount mode
+            </button>
+            <button
+              type="button"
+              className={inputMode === "total" ? "ghost-btn active" : "ghost-btn"}
+              onClick={() => setInputMode("total")}
+            >
+              Total portfolio value mode
+            </button>
+          </div>
+
+          {inputMode === "total" ? (
+            <label>
+              Total Portfolio Value (USD)
+              <input
+                type="number"
+                min="0.01"
+                step="any"
+                value={totalValue}
+                onChange={(e) => setTotalValue(e.target.value)}
+              />
+            </label>
+          ) : null}
+
           <table className="asset-table">
             <thead>
               <tr>
                 <th>Ticker</th>
-                <th>Weight</th>
+                <th>{modeLabel(inputMode)}</th>
                 <th />
               </tr>
             </thead>
@@ -141,9 +216,9 @@ export default function App() {
                     <input
                       type="number"
                       step="any"
-                      min="0.0001"
-                      value={row.weight}
-                      onChange={(e) => updateRow(i, "weight", e.target.value)}
+                      min="0"
+                      value={row.value}
+                      onChange={(e) => updateRow(i, "value", e.target.value)}
                     />
                   </td>
                   <td>
@@ -228,6 +303,19 @@ export default function App() {
             ) : (
               <p className="empty">Benchmark comparison appears after analysis.</p>
             )}
+
+            {inputMode === "total" && impliedAllocations.length > 0 ? (
+              <div className="implied-block">
+                <h3>Implied Allocations (USD)</h3>
+                <ul className="metrics-list">
+                  {impliedAllocations.map((a) => (
+                    <li key={a.ticker}>
+                      {a.ticker}: ${fmtNum(a.amount, 2)} ({fmtPct(a.weight, 2)})
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
 
           <div className="card chart-card">

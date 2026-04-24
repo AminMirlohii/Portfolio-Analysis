@@ -109,6 +109,18 @@ button:disabled {
   margin-top: 0.6rem;
 }
 
+.mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.ghost-btn.active {
+  border-color: #3b82f6;
+  background: #1e293b;
+}
+
 .results-panel {
   display: grid;
   gap: 1rem;
@@ -148,6 +160,18 @@ button:disabled {
 .empty {
   color: #9ca3af;
   margin: 0;
+}
+
+.implied-block {
+  margin-top: 0.9rem;
+  border-top: 1px solid #2a2a2a;
+  padding-top: 0.7rem;
+}
+
+.implied-block h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.92rem;
+  color: #cbd5e1;
 }
 
 .error {
