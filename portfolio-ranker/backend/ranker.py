@@ -22,12 +22,10 @@ def rank_portfolio(metrics):
         rank = "Elite"
     elif score >= 80:
         rank = "Excellent"
-    elif score >= 70:
+    elif score >= 65:
         rank = "Strong"
-    elif score >= 60:
-        rank = "Average"
     elif score >= 50:
-        rank = "Weak"
+        rank = "Average"
     else:
         rank = "Poor"
 
