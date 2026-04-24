@@ -10,6 +10,7 @@ from flask_cors import CORS
 
 from data_fetcher import simulate_benchmark
 from metrics import calculate_metrics
+from ml_analysis import classify_risk, detect_anomaly
 from portfolio import validate_portfolio_input, simulate_portfolio
 from ranker import rank_portfolio
 
@@ -118,6 +119,14 @@ def analyze():
             years,
         )
         ranking_result = rank_portfolio(metrics_result)
+        features = [
+            metrics_result["annual_return"],
+            metrics_result["volatility"],
+            metrics_result["drawdown"],
+            metrics_result["sharpe"],
+        ]
+        anomaly_result = detect_anomaly(features)
+        risk_result = classify_risk(features)
         benchmark_result = simulate_benchmark(years)
         portfolio_curve, benchmark_curve = _aligned_curves(simulation_result, benchmark_result)
     except Exception:
@@ -134,6 +143,9 @@ def analyze():
         "volatility": metrics_result["volatility"],
         "drawdown": metrics_result["drawdown"],
         "sharpe": metrics_result["sharpe"],
+        "risk_level": risk_result["risk_level"],
+        "is_anomaly": anomaly_result["is_anomaly"],
+        "anomaly_score": anomaly_result["anomaly_score"],
         "portfolio_curve": portfolio_curve,
         "benchmark_curve": benchmark_curve,
     }

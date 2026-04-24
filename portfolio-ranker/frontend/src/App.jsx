@@ -464,7 +464,7 @@ export default function App() {
           </div>
 
           <div className="card chart-card">
-            <h2>AI Analysis (coming soon)</h2>
+            <h2>AI Analysis</h2>
             <p className="empty">
               This section will provide narrative insights, portfolio diagnostics, and actionable improvement suggestions.
             </p>
