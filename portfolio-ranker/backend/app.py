@@ -2,6 +2,8 @@
 Flask application entry point for Portfolio Ranker API.
 """
 
+import traceback
+
 import pandas as pd
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -44,6 +46,32 @@ def _aligned_curves(simulation_result, benchmark_result):
     return portfolio_curve, benchmark_curve
 
 
+def _json_safe(obj):
+    """Coerce numpy/pandas scalars for jsonify."""
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, (int, float)):
+        return float(obj)
+    if hasattr(obj, "item"):
+        try:
+            return float(obj.item())
+        except (ValueError, TypeError):
+            return obj
+    return obj
+
+
+def ok(data):
+    return jsonify({"status": "success", "data": _json_safe(data)}), 200
+
+
+def err(message, code=400):
+    return jsonify({"status": "error", "message": str(message)}), code
+
+
 app = Flask(__name__)
 CORS(
     app,
@@ -55,7 +83,7 @@ CORS(
 @app.route("/")
 def index():
     """Health check / root endpoint."""
-    return "Portfolio Ranker API running"
+    return ok({"service": "Portfolio Ranker API", "message": "running"})
 
 
 @app.route("/portfolio", methods=["POST"])
@@ -64,41 +92,52 @@ def submit_portfolio():
     data = request.get_json(silent=True)
     is_valid, error = validate_portfolio_input(data)
     if not is_valid:
-        return jsonify({"status": "error", "message": error}), 400
-    return jsonify({"status": "portfolio accepted"}), 200
+        return err(error, 400)
+    return ok({"message": "portfolio accepted"})
 
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    """Full portfolio analysis (placeholder)."""
-    data = request.get_json()
+    """Full portfolio analysis."""
+    data = request.get_json(silent=True)
+    if data is None:
+        return err("Request body must be valid JSON.", 400)
     is_valid, error = validate_portfolio_input(data)
     if not is_valid:
-        return jsonify({"status": "error", "message": error}), 400
+        return err(error, 400)
+
     portfolio = data["portfolio"]
     years = data["years"]
-    simulation_result = simulate_portfolio(portfolio, years)
-    portfolio_daily_returns = simulation_result["portfolio_value"].pct_change()
-    metrics_result = calculate_metrics(
-        simulation_result["portfolio_value"],
-        portfolio_daily_returns,
-        years,
-    )
-    ranking_result = rank_portfolio(metrics_result)
-    benchmark_result = simulate_benchmark(years)
-    portfolio_curve, benchmark_curve = _aligned_curves(simulation_result, benchmark_result)
-    return jsonify(
-        {
-            "score": ranking_result["score"],
-            "rank": ranking_result["rank"],
-            "annual_return": metrics_result["annual_return"],
-            "volatility": metrics_result["volatility"],
-            "drawdown": metrics_result["drawdown"],
-            "sharpe": metrics_result["sharpe"],
-            "portfolio_curve": portfolio_curve,
-            "benchmark_curve": benchmark_curve,
-        }
-    ), 200
+
+    try:
+        simulation_result = simulate_portfolio(portfolio, years)
+        portfolio_daily_returns = simulation_result["portfolio_value"].pct_change()
+        metrics_result = calculate_metrics(
+            simulation_result["portfolio_value"],
+            portfolio_daily_returns,
+            years,
+        )
+        ranking_result = rank_portfolio(metrics_result)
+        benchmark_result = simulate_benchmark(years)
+        portfolio_curve, benchmark_curve = _aligned_curves(simulation_result, benchmark_result)
+    except Exception:
+        traceback.print_exc()
+        return err(
+            "Analysis failed. Check tickers and network, then try again.",
+            500,
+        )
+
+    payload = {
+        "score": ranking_result["score"],
+        "rank": ranking_result["rank"],
+        "annual_return": metrics_result["annual_return"],
+        "volatility": metrics_result["volatility"],
+        "drawdown": metrics_result["drawdown"],
+        "sharpe": metrics_result["sharpe"],
+        "portfolio_curve": portfolio_curve,
+        "benchmark_curve": benchmark_curve,
+    }
+    return ok(payload)
 
 
 if __name__ == "__main__":

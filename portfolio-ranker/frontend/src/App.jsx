@@ -9,8 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-
-const API = "http://localhost:5000/analyze";
+import { analyzePortfolio } from "./api.js";
 
 function mergeChartData(portfolio_curve = [], benchmark_curve = []) {
   const byDate = new Map();
@@ -25,9 +24,33 @@ function mergeChartData(portfolio_curve = [], benchmark_curve = []) {
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function pct(x) {
-  if (x == null || Number.isNaN(x)) return "—";
-  return `${(Number(x) * 100).toFixed(2)}%`;
+function fmtPct(x, decimals = 2) {
+  if (x == null || Number.isNaN(Number(x))) return "—";
+  return `${(Number(x) * 100).toFixed(decimals)}%`;
+}
+
+function fmtNum(x, decimals = 4) {
+  if (x == null || Number.isNaN(Number(x))) return "—";
+  return Number(x).toFixed(decimals);
+}
+
+function validateRows(rows) {
+  const assets = rows
+    .map((row) => ({
+      ticker: String(row.ticker || "").trim().toUpperCase(),
+      weight: parseFloat(row.weight),
+    }))
+    .filter((row) => row.ticker.length > 0);
+
+  if (assets.length < 1) {
+    return { ok: false, message: "Add at least one asset with a ticker." };
+  }
+  for (const a of assets) {
+    if (Number.isNaN(a.weight) || a.weight <= 0) {
+      return { ok: false, message: "Each asset must have a weight greater than 0." };
+    }
+  }
+  return { ok: true, assets };
 }
 
 export default function App() {
@@ -43,6 +66,10 @@ export default function App() {
     [result]
   );
 
+  const chartReady =
+    chartData.length > 0 &&
+    chartData.some((r) => typeof r.portfolio === "number" || typeof r.benchmark === "number");
+
   function updateRow(i, field, value) {
     setRows((r) => r.map((row, j) => (j === i ? { ...row, [field]: value } : row)));
   }
@@ -55,37 +82,28 @@ export default function App() {
     setRows((r) => (r.length <= 1 ? r : r.filter((_, j) => j !== i)));
   }
 
-  async function analyze() {
+  async function handleAnalyze() {
     setError(null);
     setResult(null);
-    const portfolio = rows
-      .map((row) => ({
-        ticker: String(row.ticker || "").trim().toUpperCase(),
-        weight: parseFloat(row.weight),
-      }))
-      .filter((row) => row.ticker.length > 0 && !Number.isNaN(row.weight));
+
+    const check = validateRows(rows);
+    if (!check.ok) {
+      setError(check.message);
+      return;
+    }
 
     const body = {
-      portfolio,
+      portfolio: check.assets,
       years: Number(years),
       dividends: Boolean(dividends),
     };
 
     setLoading(true);
     try {
-      const res = await fetch(API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError(data.message || res.statusText || "Request failed");
-        return;
-      }
+      const data = await analyzePortfolio(body);
       setResult(data);
     } catch (e) {
-      setError(e.message || "Network error");
+      setError(e.message || "Something went wrong");
     } finally {
       setLoading(false);
     }
@@ -119,7 +137,7 @@ export default function App() {
                   <input
                     type="number"
                     step="any"
-                    min="0"
+                    min="0.0001"
                     value={row.weight}
                     onChange={(e) => updateRow(i, "weight", e.target.value)}
                   />
@@ -155,8 +173,8 @@ export default function App() {
         </label>
 
         <div>
-          <button type="button" onClick={analyze} disabled={loading}>
-            {loading ? "Analyzing…" : "Analyze Portfolio"}
+          <button type="button" onClick={handleAnalyze} disabled={loading}>
+            {loading ? "Loading..." : "Analyze Portfolio"}
           </button>
         </div>
       </section>
@@ -167,28 +185,34 @@ export default function App() {
         <section>
           <h2>Results</h2>
           <ul>
-            <li>Score: {result.score}</li>
+            <li>Score: {fmtNum(result.score, 2)}</li>
             <li>Rank: {result.rank}</li>
-            <li>Annual return: {pct(result.annual_return)}</li>
-            <li>Volatility (ann.): {pct(result.volatility)}</li>
-            <li>Max drawdown: {pct(result.drawdown)}</li>
-            <li>Sharpe (daily): {result.sharpe != null ? Number(result.sharpe).toFixed(4) : "—"}</li>
+            <li>Annual return: {fmtPct(result.annual_return, 2)}</li>
+            <li>Volatility (ann.): {fmtPct(result.volatility, 2)}</li>
+            <li>Max drawdown: {fmtPct(result.drawdown, 2)}</li>
+            <li>Sharpe (daily): {fmtNum(result.sharpe, 4)}</li>
           </ul>
 
-          <h3>Portfolio vs benchmark</h3>
-          <div style={{ width: "100%", height: 320 }}>
-            <ResponsiveContainer>
-              <LineChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="portfolio" name="Portfolio" stroke="#2563eb" dot={false} />
-                <Line type="monotone" dataKey="benchmark" name="Benchmark" stroke="#16a34a" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          {chartReady ? (
+            <>
+              <h3>Portfolio vs benchmark</h3>
+              <div style={{ width: "100%", height: 320 }}>
+                <ResponsiveContainer>
+                  <LineChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="portfolio" name="Portfolio" stroke="#2563eb" dot={false} />
+                    <Line type="monotone" dataKey="benchmark" name="Benchmark" stroke="#16a34a" dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          ) : (
+            <p>No chart data available.</p>
+          )}
         </section>
       ) : null}
     </div>
