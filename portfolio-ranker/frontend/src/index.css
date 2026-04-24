@@ -137,6 +137,69 @@ button:disabled {
   gap: 0.75rem;
 }
 
+.analytics-card {
+  grid-column: 1 / -1;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.analytic-pill {
+  background: #121826;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  padding: 0.7rem;
+}
+
+.analytic-pill span {
+  color: #9ca3af;
+  font-size: 0.8rem;
+  display: block;
+}
+
+.analytic-pill strong {
+  font-size: 1.1rem;
+}
+
+.interpretation {
+  margin-top: 0.75rem;
+}
+
+.interpretation p {
+  margin: 0.3rem 0;
+  color: #d1d5db;
+}
+
+.risk-meter {
+  margin-top: 0.8rem;
+}
+
+.risk-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.risk-track {
+  height: 10px;
+  background: #1f2937;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.risk-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e 0%, #eab308 55%, #ef4444 100%);
+  transition: width 0.25s ease;
+}
+
+.risk-meter small {
+  color: #9ca3af;
+}
+
 .metric-item span {
   color: #9ca3af;
   font-size: 0.85rem;
@@ -186,5 +249,9 @@ button:disabled {
 
   .results-panel {
     grid-template-columns: 1fr;
+  }
+
+  .analytics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

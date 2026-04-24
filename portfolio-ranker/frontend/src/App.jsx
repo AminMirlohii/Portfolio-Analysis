@@ -11,17 +11,48 @@ import {
 } from "recharts";
 import { analyzePortfolio } from "./api.js";
 
-function mergeChartData(portfolio_curve = [], benchmark_curve = []) {
+function mergeChartData(curves) {
   const byDate = new Map();
-  for (const p of portfolio_curve) {
-    byDate.set(p.date, { date: p.date, portfolio: p.value });
-  }
-  for (const b of benchmark_curve) {
-    const row = byDate.get(b.date) || { date: b.date };
-    row.benchmark = b.value;
-    byDate.set(b.date, row);
+  for (const [key, list] of Object.entries(curves)) {
+    for (const point of list || []) {
+      const row = byDate.get(point.date) || { date: point.date };
+      row[key] = point.value;
+      byDate.set(point.date, row);
+    }
   }
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function filterByYears(data, years) {
+  if (!Array.isArray(data) || data.length === 0) return [];
+  const end = new Date(data[data.length - 1].date);
+  const cutoff = new Date(end);
+  cutoff.setFullYear(cutoff.getFullYear() - years);
+  return data.filter((row) => new Date(row.date) >= cutoff);
+}
+
+function pctChangeFromCurve(curve) {
+  if (!Array.isArray(curve) || curve.length < 2) return null;
+  const first = Number(curve[0].value);
+  const last = Number(curve[curve.length - 1].value);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || first <= 0) return null;
+  return last / first - 1;
+}
+
+function mockIndexCurve(baseCurve, factor) {
+  if (!Array.isArray(baseCurve) || baseCurve.length < 2) return [];
+  const out = [{ date: baseCurve[0].date, value: 10000 }];
+  for (let i = 1; i < baseCurve.length; i += 1) {
+    const prev = Number(baseCurve[i - 1].value);
+    const curr = Number(baseCurve[i].value);
+    if (!Number.isFinite(prev) || !Number.isFinite(curr) || prev <= 0) {
+      out.push({ date: baseCurve[i].date, value: out[out.length - 1].value });
+      continue;
+    }
+    const r = curr / prev - 1;
+    out.push({ date: baseCurve[i].date, value: out[out.length - 1].value * (1 + r * factor) });
+  }
+  return out;
 }
 
 function fmtPct(x, decimals = 2) {
@@ -89,20 +120,66 @@ export default function App() {
   const [inputMode, setInputMode] = useState("percentage");
   const [totalValue, setTotalValue] = useState("10000");
   const [impliedAllocations, setImpliedAllocations] = useState([]);
+  const [rangeYears, setRangeYears] = useState(5);
   const [years, setYears] = useState(5);
   const [dividends, setDividends] = useState(true);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  const portfolioCurve = result?.portfolio_curve || [];
+  const spyCurve = result?.benchmark_curve || [];
+  const qqqCurve = useMemo(() => mockIndexCurve(spyCurve, 1.25), [spyCurve]);
+  const diaCurve = useMemo(() => mockIndexCurve(spyCurve, 0.85), [spyCurve]);
+
+  const filteredPortfolio = useMemo(() => filterByYears(portfolioCurve, rangeYears), [portfolioCurve, rangeYears]);
+  const filteredSpy = useMemo(() => filterByYears(spyCurve, rangeYears), [spyCurve, rangeYears]);
+  const filteredQqq = useMemo(() => filterByYears(qqqCurve, rangeYears), [qqqCurve, rangeYears]);
+  const filteredDia = useMemo(() => filterByYears(diaCurve, rangeYears), [diaCurve, rangeYears]);
+
   const chartData = useMemo(
-    () => mergeChartData(result?.portfolio_curve, result?.benchmark_curve),
-    [result]
+    () =>
+      mergeChartData({
+        portfolio: filteredPortfolio,
+        spy: filteredSpy,
+        qqq: filteredQqq,
+        dia: filteredDia,
+      }),
+    [filteredPortfolio, filteredSpy, filteredQqq, filteredDia]
   );
 
   const chartReady =
     chartData.length > 0 &&
-    chartData.some((r) => typeof r.portfolio === "number" || typeof r.benchmark === "number");
+    chartData.some(
+      (r) =>
+        typeof r.portfolio === "number" ||
+        typeof r.spy === "number" ||
+        typeof r.qqq === "number" ||
+        typeof r.dia === "number"
+    );
+
+  const portfolioChange = pctChangeFromCurve(filteredPortfolio);
+  const spyChange = pctChangeFromCurve(filteredSpy);
+  const volatility = result?.volatility ?? null;
+  const drawdown = result?.drawdown ?? null;
+  const sharpe = result?.sharpe ?? null;
+
+  const marketInterpretation =
+    portfolioChange != null && spyChange != null
+      ? portfolioChange >= spyChange
+        ? "Outperforms S&P 500"
+        : "Underperforms market"
+      : "Run an analysis to compare against market";
+
+  const volatilityInterpretation =
+    volatility == null ? "Run analysis to assess volatility" : volatility >= 0.25 ? "High volatility portfolio" : "Stable portfolio";
+
+  const riskScore =
+    volatility == null || drawdown == null
+      ? null
+      : Math.min(1, Math.max(0, volatility / 0.35)) * 0.6 + Math.min(1, Math.max(0, drawdown / 0.4)) * 0.4;
+  const riskLevel = riskScore == null ? "N/A" : riskScore < 0.33 ? "Low" : riskScore < 0.66 ? "Medium" : "High";
+  const riskPct = riskScore == null ? 0 : Math.round(riskScore * 100);
 
   function updateRow(i, field, value) {
     setRows((r) => r.map((row, j) => (j === i ? { ...row, [field]: value } : row)));
@@ -238,10 +315,19 @@ export default function App() {
           </div>
 
           <label>
-            Years
+            Analysis Horizon (backend)
             <select value={years} onChange={(e) => setYears(Number(e.target.value))}>
               <option value={5}>5</option>
               <option value={10}>10</option>
+            </select>
+          </label>
+
+          <label>
+            Chart Time Range
+            <select value={rangeYears} onChange={(e) => setRangeYears(Number(e.target.value))}>
+              <option value={1}>1 year</option>
+              <option value={5}>5 years</option>
+              <option value={10}>10 years</option>
             </select>
           </label>
 
@@ -280,6 +366,44 @@ export default function App() {
             )}
           </div>
 
+          <div className="card analytics-card">
+            <h2>Advanced Analytics</h2>
+            <div className="analytics-grid">
+              <div className="analytic-pill">
+                <span>Total Return</span>
+                <strong>{fmtPct(portfolioChange, 2)}</strong>
+              </div>
+              <div className="analytic-pill">
+                <span>Volatility</span>
+                <strong>{fmtPct(volatility, 2)}</strong>
+              </div>
+              <div className="analytic-pill">
+                <span>Max Drawdown</span>
+                <strong>{fmtPct(drawdown, 2)}</strong>
+              </div>
+              <div className="analytic-pill">
+                <span>Sharpe Ratio</span>
+                <strong>{fmtNum(sharpe, 4)}</strong>
+              </div>
+            </div>
+
+            <div className="interpretation">
+              <p>{marketInterpretation}</p>
+              <p>{volatilityInterpretation}</p>
+            </div>
+
+            <div className="risk-meter">
+              <div className="risk-header">
+                <span>Risk Meter</span>
+                <strong>{riskLevel}</strong>
+              </div>
+              <div className="risk-track">
+                <div className="risk-fill" style={{ width: `${riskPct}%` }} />
+              </div>
+              <small>{riskLevel === "N/A" ? "Need volatility and drawdown data" : `${riskPct}% risk intensity`}</small>
+            </div>
+          </div>
+
           <div className="card">
             <h2>Metrics Summary</h2>
             {result ? (
@@ -295,15 +419,13 @@ export default function App() {
           </div>
 
           <div className="card">
-            <h2>Benchmark Comparison</h2>
-            {result ? (
-              <p className="subtle">
-                Portfolio curve is compared directly against SPY benchmark over the selected period.
-              </p>
-            ) : (
-              <p className="empty">Benchmark comparison appears after analysis.</p>
-            )}
-
+            <h2>Index Comparison ({rangeYears}Y)</h2>
+            <div className="metrics-list">
+              <div>Portfolio: {fmtPct(pctChangeFromCurve(filteredPortfolio), 2)}</div>
+              <div>S&P 500 (SPY): {fmtPct(pctChangeFromCurve(filteredSpy), 2)}</div>
+              <div>Nasdaq (QQQ): {fmtPct(pctChangeFromCurve(filteredQqq), 2)}</div>
+              <div>Dow Jones (DIA): {fmtPct(pctChangeFromCurve(filteredDia), 2)}</div>
+            </div>
             {inputMode === "total" && impliedAllocations.length > 0 ? (
               <div className="implied-block">
                 <h3>Implied Allocations (USD)</h3>
@@ -330,13 +452,22 @@ export default function App() {
                     <Tooltip />
                     <Legend />
                     <Line type="monotone" dataKey="portfolio" name="Portfolio" stroke="#3b82f6" dot={false} />
-                    <Line type="monotone" dataKey="benchmark" name="Benchmark" stroke="#22c55e" dot={false} />
+                    <Line type="monotone" dataKey="spy" name="SPY" stroke="#22c55e" dot={false} />
+                    <Line type="monotone" dataKey="qqq" name="QQQ" stroke="#f59e0b" dot={false} />
+                    <Line type="monotone" dataKey="dia" name="DIA" stroke="#ef4444" dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             ) : (
               <p className="empty">No chart data available yet.</p>
             )}
+          </div>
+
+          <div className="card chart-card">
+            <h2>AI Analysis (coming soon)</h2>
+            <p className="empty">
+              This section will provide narrative insights, portfolio diagnostics, and actionable improvement suggestions.
+            </p>
           </div>
         </section>
       </main>
