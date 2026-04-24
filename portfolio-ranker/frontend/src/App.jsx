@@ -110,111 +110,148 @@ export default function App() {
   }
 
   return (
-    <div>
-      <h1>Portfolio Ranker</h1>
+    <div className="app">
+      <header className="app-header">
+        <h1>Portfolio Ranker</h1>
+        <p>Build a weighted portfolio and compare it against SPY.</p>
+      </header>
 
-      <section>
-        <h2>Portfolio</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Ticker</th>
-              <th>Weight</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => (
-              <tr key={i}>
-                <td>
-                  <input
-                    value={row.ticker}
-                    onChange={(e) => updateRow(i, "ticker", e.target.value)}
-                    placeholder="e.g. MSFT"
-                  />
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0.0001"
-                    value={row.weight}
-                    onChange={(e) => updateRow(i, "weight", e.target.value)}
-                  />
-                </td>
-                <td>
-                  <button type="button" onClick={() => removeRow(i)} disabled={rows.length <= 1}>
-                    Remove
-                  </button>
-                </td>
+      <main className="dashboard">
+        <section className="card input-panel">
+          <h2>Portfolio Input</h2>
+          <table className="asset-table">
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Weight</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
-        <button type="button" onClick={addRow}>
-          Add asset
-        </button>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => (
+                <tr key={i}>
+                  <td>
+                    <input
+                      value={row.ticker}
+                      onChange={(e) => updateRow(i, "ticker", e.target.value)}
+                      placeholder="e.g. MSFT"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0.0001"
+                      value={row.weight}
+                      onChange={(e) => updateRow(i, "weight", e.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <button type="button" onClick={() => removeRow(i)} disabled={rows.length <= 1}>
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-        <label>
-          Years
-          <select value={years} onChange={(e) => setYears(Number(e.target.value))}>
-            <option value={5}>5</option>
-            <option value={10}>10</option>
-          </select>
-        </label>
+          <div className="row-actions">
+            <button type="button" className="ghost-btn" onClick={addRow}>
+              Add Asset
+            </button>
+          </div>
 
-        <label>
-          <input
-            type="checkbox"
-            checked={dividends}
-            onChange={(e) => setDividends(e.target.checked)}
-          />{" "}
-          Include dividends (flag for backend)
-        </label>
+          <label>
+            Years
+            <select value={years} onChange={(e) => setYears(Number(e.target.value))}>
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+            </select>
+          </label>
 
-        <div>
-          <button type="button" onClick={handleAnalyze} disabled={loading}>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={dividends}
+              onChange={(e) => setDividends(e.target.checked)}
+            />
+            <span>Include dividends</span>
+          </label>
+
+          <button type="button" className="primary-btn" onClick={handleAnalyze} disabled={loading}>
             {loading ? "Loading..." : "Analyze Portfolio"}
           </button>
-        </div>
-      </section>
 
-      {error ? <p className="error">{error}</p> : null}
+          {error ? <p className="error">{error}</p> : null}
+        </section>
 
-      {result ? (
-        <section>
-          <h2>Results</h2>
-          <ul>
-            <li>Score: {fmtNum(result.score, 2)}</li>
-            <li>Rank: {result.rank}</li>
-            <li>Annual return: {fmtPct(result.annual_return, 2)}</li>
-            <li>Volatility (ann.): {fmtPct(result.volatility, 2)}</li>
-            <li>Max drawdown: {fmtPct(result.drawdown, 2)}</li>
-            <li>Sharpe (daily): {fmtNum(result.sharpe, 4)}</li>
-          </ul>
+        <section className="results-panel">
+          <div className="card">
+            <h2>Portfolio Performance</h2>
+            {result ? (
+              <div className="metrics-grid">
+                <div className="metric-item">
+                  <span>Score</span>
+                  <strong>{fmtNum(result.score, 2)}</strong>
+                </div>
+                <div className="metric-item">
+                  <span>Rank</span>
+                  <strong>{result.rank}</strong>
+                </div>
+              </div>
+            ) : (
+              <p className="empty">Run an analysis to see performance.</p>
+            )}
+          </div>
 
-          {chartReady ? (
-            <>
-              <h3>Portfolio vs benchmark</h3>
-              <div style={{ width: "100%", height: 320 }}>
+          <div className="card">
+            <h2>Metrics Summary</h2>
+            {result ? (
+              <ul className="metrics-list">
+                <li>Annual return: {fmtPct(result.annual_return, 2)}</li>
+                <li>Volatility (ann.): {fmtPct(result.volatility, 2)}</li>
+                <li>Max drawdown: {fmtPct(result.drawdown, 2)}</li>
+                <li>Sharpe (daily): {fmtNum(result.sharpe, 4)}</li>
+              </ul>
+            ) : (
+              <p className="empty">Metrics will appear here.</p>
+            )}
+          </div>
+
+          <div className="card">
+            <h2>Benchmark Comparison</h2>
+            {result ? (
+              <p className="subtle">
+                Portfolio curve is compared directly against SPY benchmark over the selected period.
+              </p>
+            ) : (
+              <p className="empty">Benchmark comparison appears after analysis.</p>
+            )}
+          </div>
+
+          <div className="card chart-card">
+            <h2>Charts Area</h2>
+            {chartReady ? (
+              <div style={{ width: "100%", height: 340 }}>
                 <ResponsiveContainer>
                   <LineChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                    <YAxis tick={{ fontSize: 10 }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2f3a" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9ca3af" }} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 10, fill: "#9ca3af" }} />
                     <Tooltip />
                     <Legend />
-                    <Line type="monotone" dataKey="portfolio" name="Portfolio" stroke="#2563eb" dot={false} />
-                    <Line type="monotone" dataKey="benchmark" name="Benchmark" stroke="#16a34a" dot={false} />
+                    <Line type="monotone" dataKey="portfolio" name="Portfolio" stroke="#3b82f6" dot={false} />
+                    <Line type="monotone" dataKey="benchmark" name="Benchmark" stroke="#22c55e" dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </>
-          ) : (
-            <p>No chart data available.</p>
-          )}
+            ) : (
+              <p className="empty">No chart data available yet.</p>
+            )}
+          </div>
         </section>
-      ) : null}
+      </main>
     </div>
   );
 }
