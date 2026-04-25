@@ -74,7 +74,8 @@ def sharpe_ratio(returns):
         std_r = statistics.stdev(r)
     if std_r == 0.0:
         return 0.0
-    return mean_r / std_r
+    # Annualize daily Sharpe so it aligns with annual return/volatility reporting.
+    return (mean_r / std_r) * math.sqrt(252.0)
 
 
 def calculate_metrics(values, returns, years):

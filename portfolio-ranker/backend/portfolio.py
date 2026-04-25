@@ -3,6 +3,7 @@ Portfolio management and validation module.
 """
 
 import pandas as pd
+from typing import cast
 
 from data_fetcher import fetch_asset_data
 
@@ -39,8 +40,8 @@ def validate_portfolio_input(data):
     if abs(weight_sum - 1.0) > 0.001:
         return False, "weights must sum to 1.0"
 
-    if years not in (5, 10):
-        return False, "years must be 5 or 10"
+    if years not in (1, 5, 10):
+        return False, "years must be 1, 5, or 10"
 
     if not isinstance(dividends, bool):
         return False, "dividends must be a boolean"
@@ -48,24 +49,31 @@ def validate_portfolio_input(data):
     return True, None
 
 
-def simulate_portfolio(portfolio, years):
+def simulate_portfolio(portfolio, years, include_dividends=True, initial_value=10000.0):
     """
     Simulate portfolio performance over time.
     portfolio: list of {"ticker": str, "weight": float}
     years: 5 or 10
-    Returns DataFrame with columns: date, portfolio_value
+    Returns (DataFrame, coverage_info) where DataFrame has columns: date, portfolio_value.
     """
     dfs = []
+    coverage_by_ticker = {}
     for item in portfolio:
         ticker = item["ticker"]
         weight = item["weight"]
         df = fetch_asset_data(ticker, years)
-        df = df.rename(columns={"price": f"{ticker}_price", "dividend": f"{ticker}_div"})
-        df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
+        if not df.empty:
+            date_series = cast(pd.Series, df["date"])
+            first_date = pd.to_datetime(date_series.iloc[0]).tz_localize(None)
+            coverage_by_ticker[ticker] = first_date.strftime("%Y-%m-%d")
+        df = df.copy()
+        df.columns = ["date", f"{ticker}_price", f"{ticker}_div"]
+        df["date"] = pd.to_datetime(cast(pd.Series, df["date"]))
+        df["date"] = cast(pd.Series, df["date"]).dt.tz_localize(None)
         dfs.append((df, weight))
 
     if not dfs:
-        return pd.DataFrame(columns=["date", "portfolio_value"])
+        return pd.DataFrame(columns=["date", "portfolio_value"]), {"history_warnings": []}
 
     merged = dfs[0][0][["date"]]
     for df, _ in dfs:
@@ -80,12 +88,15 @@ def simulate_portfolio(portfolio, years):
         asset_df = merged[["date"]].merge(df, on="date", how="inner")
         if len(asset_df) < 2:
             continue
-        total = asset_df[price_col] + asset_df[div_col]
-        ret = total / total.shift(1) - 1
+        if include_dividends:
+            total = asset_df[price_col] + asset_df[div_col]
+            ret = total / total.shift(1) - 1
+        else:
+            ret = asset_df[price_col] / asset_df[price_col].shift(1) - 1
         ret = ret.reindex(merged.index).fillna(0)
         weighted_returns += weight * ret
 
-    values = [10000.0]
+    values = [float(initial_value)]
     for r in weighted_returns.iloc[1:]:
         values.append(values[-1] * (1 + r))
 
@@ -93,4 +104,13 @@ def simulate_portfolio(portfolio, years):
         "date": merged["date"].values,
         "portfolio_value": values,
     })
-    return result
+    requested_start = pd.Timestamp.now().normalize() - pd.DateOffset(years=years)
+    warnings = []
+    for ticker, first_date_str in coverage_by_ticker.items():
+        first_date = pd.to_datetime(first_date_str)
+        if first_date > requested_start:
+            warnings.append(
+                f"{ticker} data starts on {first_date_str}, so a full {years}-year backtest is not available."
+            )
+
+    return result, {"history_warnings": warnings}

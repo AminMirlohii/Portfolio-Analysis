@@ -109,9 +109,14 @@ def analyze():
 
     portfolio = data["portfolio"]
     years = data["years"]
+    dividends = data["dividends"]
 
     try:
-        simulation_result = simulate_portfolio(portfolio, years)
+        simulation_result, coverage_info = simulate_portfolio(
+            portfolio,
+            years,
+            include_dividends=dividends,
+        )
         portfolio_daily_returns = simulation_result["portfolio_value"].pct_change()
         metrics_result = calculate_metrics(
             simulation_result["portfolio_value"],
@@ -127,7 +132,10 @@ def analyze():
         ]
         anomaly_result = detect_anomaly(features)
         risk_result = classify_risk(features)
-        benchmark_result = simulate_benchmark(years)
+        benchmark_result = simulate_benchmark(
+            years,
+            include_dividends=dividends,
+        )
         portfolio_curve, benchmark_curve = _aligned_curves(simulation_result, benchmark_result)
     except Exception:
         traceback.print_exc()
@@ -148,6 +156,7 @@ def analyze():
         "anomaly_score": anomaly_result["anomaly_score"],
         "portfolio_curve": portfolio_curve,
         "benchmark_curve": benchmark_curve,
+        "history_warnings": coverage_info.get("history_warnings", []),
     }
     return ok(payload)
 

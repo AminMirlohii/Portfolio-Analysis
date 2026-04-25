@@ -41,7 +41,8 @@ function pctChangeFromCurve(curve) {
 
 function mockIndexCurve(baseCurve, factor) {
   if (!Array.isArray(baseCurve) || baseCurve.length < 2) return [];
-  const out = [{ date: baseCurve[0].date, value: 10000 }];
+  const startValue = Number(baseCurve[0].value);
+  const out = [{ date: baseCurve[0].date, value: Number.isFinite(startValue) ? startValue : 10000 }];
   for (let i = 1; i < baseCurve.length; i += 1) {
     const prev = Number(baseCurve[i - 1].value);
     const curr = Number(baseCurve[i].value);
@@ -55,6 +56,15 @@ function mockIndexCurve(baseCurve, factor) {
   return out;
 }
 
+function scaleCurve(curve, startValue) {
+  if (!Array.isArray(curve) || curve.length === 0) return [];
+  const base = Number(curve[0]?.value);
+  const target = Number(startValue);
+  if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(target) || target <= 0) return curve;
+  const scale = target / base;
+  return curve.map((point) => ({ ...point, value: Number(point.value) * scale }));
+}
+
 function fmtPct(x, decimals = 2) {
   if (x == null || Number.isNaN(Number(x))) return "—";
   return `${(Number(x) * 100).toFixed(decimals)}%`;
@@ -66,8 +76,8 @@ function fmtNum(x, decimals = 4) {
 }
 
 function modeLabel(mode) {
-  if (mode === "dollar") return "Amount (USD)";
-  return "Allocation units";
+  if (mode === "dollar") return "Amount";
+  return "Allocation";
 }
 
 function buildPortfolioInput(rows, mode, totalValue) {
@@ -97,45 +107,48 @@ function buildPortfolioInput(rows, mode, totalValue) {
 
   const portfolio = positives.map((a) => ({ ticker: a.ticker, weight: a.value / sum }));
 
-  if (mode !== "total") {
-    return { ok: true, portfolio, implied: [] };
+  if (mode === "percentage") {
+    const total = parseFloat(totalValue);
+    if (Number.isNaN(total) || total <= 0) {
+      return { ok: false, message: "Total Portfolio Value must be greater than 0." };
+    }
+    const implied = portfolio.map((a) => ({
+      ticker: a.ticker,
+      weight: a.weight,
+      amount: a.weight * total,
+    }));
+    return { ok: true, portfolio, implied, startingValue: total };
   }
 
-  const total = parseFloat(totalValue);
-  if (Number.isNaN(total) || total <= 0) {
-    return { ok: false, message: "Total portfolio value must be greater than 0 in total value mode." };
-  }
-
-  const implied = portfolio.map((a) => ({
+  const implied = positives.map((a) => ({
     ticker: a.ticker,
-    weight: a.weight,
-    amount: a.weight * total,
+    weight: a.value / sum,
+    amount: a.value,
   }));
-
-  return { ok: true, portfolio, implied };
+  return { ok: true, portfolio, implied, startingValue: sum };
 }
 
 export default function App() {
   const [rows, setRows] = useState([{ ticker: "AAPL", value: "100" }]);
   const [inputMode, setInputMode] = useState("percentage");
   const [totalValue, setTotalValue] = useState("10000");
+  const [analysisStartValue, setAnalysisStartValue] = useState(10000);
   const [impliedAllocations, setImpliedAllocations] = useState([]);
-  const [rangeYears, setRangeYears] = useState(5);
   const [years, setYears] = useState(5);
   const [dividends, setDividends] = useState(true);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const portfolioCurve = result?.portfolio_curve || [];
-  const spyCurve = result?.benchmark_curve || [];
+  const portfolioCurve = useMemo(() => scaleCurve(result?.portfolio_curve || [], analysisStartValue), [result, analysisStartValue]);
+  const spyCurve = useMemo(() => scaleCurve(result?.benchmark_curve || [], analysisStartValue), [result, analysisStartValue]);
   const qqqCurve = useMemo(() => mockIndexCurve(spyCurve, 1.25), [spyCurve]);
   const diaCurve = useMemo(() => mockIndexCurve(spyCurve, 0.85), [spyCurve]);
 
-  const filteredPortfolio = useMemo(() => filterByYears(portfolioCurve, rangeYears), [portfolioCurve, rangeYears]);
-  const filteredSpy = useMemo(() => filterByYears(spyCurve, rangeYears), [spyCurve, rangeYears]);
-  const filteredQqq = useMemo(() => filterByYears(qqqCurve, rangeYears), [qqqCurve, rangeYears]);
-  const filteredDia = useMemo(() => filterByYears(diaCurve, rangeYears), [diaCurve, rangeYears]);
+  const filteredPortfolio = useMemo(() => filterByYears(portfolioCurve, years), [portfolioCurve, years]);
+  const filteredSpy = useMemo(() => filterByYears(spyCurve, years), [spyCurve, years]);
+  const filteredQqq = useMemo(() => filterByYears(qqqCurve, years), [qqqCurve, years]);
+  const filteredDia = useMemo(() => filterByYears(diaCurve, years), [diaCurve, years]);
 
   const chartData = useMemo(
     () =>
@@ -205,6 +218,7 @@ export default function App() {
     }
 
     setImpliedAllocations(check.implied || []);
+    setAnalysisStartValue(check.startingValue || 10000);
 
     const body = {
       portfolio: check.portfolio,
@@ -249,18 +263,11 @@ export default function App() {
             >
               Dollar amount mode
             </button>
-            <button
-              type="button"
-              className={inputMode === "total" ? "ghost-btn active" : "ghost-btn"}
-              onClick={() => setInputMode("total")}
-            >
-              Total portfolio value mode
-            </button>
           </div>
 
-          {inputMode === "total" ? (
+          {inputMode === "percentage" ? (
             <label>
-              Total Portfolio Value (USD)
+              Total Portfolio Value
               <input
                 type="number"
                 min="0.01"
@@ -315,19 +322,11 @@ export default function App() {
           </div>
 
           <label>
-            Analysis Horizon (backend)
+            Analysis Horizon & Chart Range
             <select value={years} onChange={(e) => setYears(Number(e.target.value))}>
+              <option value={1}>1 year</option>
               <option value={5}>5</option>
               <option value={10}>10</option>
-            </select>
-          </label>
-
-          <label>
-            Chart Time Range
-            <select value={rangeYears} onChange={(e) => setRangeYears(Number(e.target.value))}>
-              <option value={1}>1 year</option>
-              <option value={5}>5 years</option>
-              <option value={10}>10 years</option>
             </select>
           </label>
 
@@ -345,6 +344,13 @@ export default function App() {
           </button>
 
           {error ? <p className="error">{error}</p> : null}
+          {result?.history_warnings?.length ? (
+            <div className="error">
+              {result.history_warnings.map((msg) => (
+                <p key={msg}>{msg}</p>
+              ))}
+            </div>
+          ) : null}
         </section>
 
         <section className="results-panel">
@@ -411,7 +417,7 @@ export default function App() {
                 <li>Annual return: {fmtPct(result.annual_return, 2)}</li>
                 <li>Volatility (ann.): {fmtPct(result.volatility, 2)}</li>
                 <li>Max drawdown: {fmtPct(result.drawdown, 2)}</li>
-                <li>Sharpe (daily): {fmtNum(result.sharpe, 4)}</li>
+                <li>Sharpe (annualized): {fmtNum(result.sharpe, 4)}</li>
               </ul>
             ) : (
               <p className="empty">Metrics will appear here.</p>
@@ -419,16 +425,16 @@ export default function App() {
           </div>
 
           <div className="card">
-            <h2>Index Comparison ({rangeYears}Y)</h2>
+            <h2>Index Comparison ({years}Y)</h2>
             <div className="metrics-list">
               <div>Portfolio: {fmtPct(pctChangeFromCurve(filteredPortfolio), 2)}</div>
               <div>S&P 500 (SPY): {fmtPct(pctChangeFromCurve(filteredSpy), 2)}</div>
               <div>Nasdaq (QQQ): {fmtPct(pctChangeFromCurve(filteredQqq), 2)}</div>
               <div>Dow Jones (DIA): {fmtPct(pctChangeFromCurve(filteredDia), 2)}</div>
             </div>
-            {inputMode === "total" && impliedAllocations.length > 0 ? (
+            {inputMode === "percentage" && impliedAllocations.length > 0 ? (
               <div className="implied-block">
-                <h3>Implied Allocations (USD)</h3>
+                <h3>Implied Allocations</h3>
                 <ul className="metrics-list">
                   {impliedAllocations.map((a) => (
                     <li key={a.ticker}>
