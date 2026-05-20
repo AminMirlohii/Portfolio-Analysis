@@ -5,7 +5,7 @@ Portfolio management and validation module.
 import pandas as pd
 from typing import cast
 
-from data_fetcher import fetch_asset_data
+from data_fetcher import fetch_asset_data, infer_currency
 
 
 def validate_portfolio_input(data):
@@ -19,6 +19,7 @@ def validate_portfolio_input(data):
     portfolio = data.get("portfolio")
     years = data.get("years")
     dividends = data.get("dividends")
+    initial_value = data.get("initial_value", 10000.0)
 
     if not isinstance(portfolio, list) or len(portfolio) == 0:
         return False, "portfolio must be a non-empty list"
@@ -46,66 +47,74 @@ def validate_portfolio_input(data):
     if not isinstance(dividends, bool):
         return False, "dividends must be a boolean"
 
+    if initial_value is None or not isinstance(initial_value, (int, float)) or float(initial_value) <= 0:
+        return False, "initial_value must be a positive number"
+
     return True, None
+
+
+def _asset_returns_on_calendar(df: pd.DataFrame, dates: pd.DatetimeIndex, include_dividends: bool) -> pd.Series:
+    """Forward-fill prices on union calendar, then compute daily returns."""
+    aligned = df.set_index("date").reindex(dates).sort_index()
+    price = cast(pd.Series, aligned["price"]).ffill()
+    div = cast(pd.Series, aligned["dividend"]).fillna(0.0)
+
+    if include_dividends:
+        total = price + div
+        ret = total / total.shift(1) - 1
+    else:
+        ret = price.pct_change()
+
+    return cast(pd.Series, ret).fillna(0.0)
 
 
 def simulate_portfolio(portfolio, years, include_dividends=True, initial_value=10000.0):
     """
     Simulate portfolio performance over time.
-    portfolio: list of {"ticker": str, "weight": float}
-    years: 5 or 10
-    Returns (DataFrame, coverage_info) where DataFrame has columns: date, portfolio_value.
+    Uses union of all asset trading dates with forward-filled prices (multi-exchange safe).
+    Returns (DataFrame, coverage_info).
     """
-    dfs = []
+    asset_frames = []
     coverage_by_ticker = {}
+    warnings = []
+
     for item in portfolio:
         ticker = item["ticker"]
         weight = item["weight"]
         df = fetch_asset_data(ticker, years)
-        if not df.empty:
-            date_series = cast(pd.Series, df["date"])
-            first_date = pd.to_datetime(date_series.iloc[0]).tz_localize(None)
-            coverage_by_ticker[ticker] = first_date.strftime("%Y-%m-%d")
-        df = df.copy()
-        df.columns = ["date", f"{ticker}_price", f"{ticker}_div"]
-        df["date"] = pd.to_datetime(cast(pd.Series, df["date"]))
-        df["date"] = cast(pd.Series, df["date"]).dt.tz_localize(None)
-        dfs.append((df, weight))
-
-    if not dfs:
-        return pd.DataFrame(columns=["date", "portfolio_value"]), {"history_warnings": []}
-
-    merged = dfs[0][0][["date"]]
-    for df, _ in dfs:
-        merged = merged.merge(df[["date", f"{df.columns[1]}", f"{df.columns[2]}"]], on="date", how="inner")
-    merged = merged.sort_values("date").drop_duplicates(subset=["date"])
-
-    weighted_returns = pd.Series(0.0, index=merged.index)
-    for df, weight in dfs:
-        ticker = [c.replace("_price", "") for c in df.columns if c.endswith("_price")][0]
-        price_col = f"{ticker}_price"
-        div_col = f"{ticker}_div"
-        asset_df = merged[["date"]].merge(df, on="date", how="inner")
-        if len(asset_df) < 2:
+        if df.empty:
+            warnings.append(f"{ticker}: no price history returned.")
             continue
-        if include_dividends:
-            total = asset_df[price_col] + asset_df[div_col]
-            ret = total / total.shift(1) - 1
-        else:
-            ret = asset_df[price_col] / asset_df[price_col].shift(1) - 1
-        ret = ret.reindex(merged.index).fillna(0)
-        weighted_returns += weight * ret
+
+        date_series = cast(pd.Series, df["date"])
+        first_date = pd.to_datetime(date_series.iloc[0]).tz_localize(None)
+        coverage_by_ticker[ticker] = first_date.strftime("%Y-%m-%d")
+
+        native = infer_currency(ticker)
+        if native != "USD":
+            warnings.append(f"{ticker}: converted from {native} to USD using FX rates.")
+
+        asset_frames.append((df, weight, ticker))
+
+    if not asset_frames:
+        return pd.DataFrame(columns=["date", "portfolio_value"]), {"history_warnings": warnings}
+
+    all_dates = pd.DatetimeIndex(sorted(set().union(*[set(cast(pd.Series, f[0]["date"])) for f in asset_frames])))
+
+    weighted_returns = pd.Series(0.0, index=all_dates)
+    for df, weight, _ticker in asset_frames:
+        ret = _asset_returns_on_calendar(df, all_dates, include_dividends)
+        weighted_returns = weighted_returns + weight * ret
 
     values = [float(initial_value)]
     for r in weighted_returns.iloc[1:]:
-        values.append(values[-1] * (1 + r))
+        values.append(values[-1] * (1 + float(r)))
 
     result = pd.DataFrame({
         "date": merged["date"].values,
         "portfolio_value": values,
     })
     requested_start = pd.Timestamp.now().normalize() - pd.DateOffset(years=years)
-    warnings = []
     for ticker, first_date_str in coverage_by_ticker.items():
         first_date = pd.to_datetime(first_date_str)
         if first_date > requested_start:

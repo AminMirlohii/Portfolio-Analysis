@@ -76,7 +76,12 @@ def err(message, code=400):
 app = Flask(__name__)
 CORS(
     app,
-    origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
     methods=["GET", "POST", "OPTIONS"],
 )
 
@@ -110,12 +115,14 @@ def analyze():
     portfolio = data["portfolio"]
     years = data["years"]
     dividends = data["dividends"]
+    initial_value = float(data.get("initial_value", 10000.0))
 
     try:
         simulation_result, coverage_info = simulate_portfolio(
             portfolio,
             years,
             include_dividends=dividends,
+            initial_value=initial_value,
         )
         portfolio_daily_returns = simulation_result["portfolio_value"].pct_change()
         metrics_result = calculate_metrics(
@@ -135,6 +142,7 @@ def analyze():
         benchmark_result = simulate_benchmark(
             years,
             include_dividends=dividends,
+            initial_value=initial_value,
         )
         portfolio_curve, benchmark_curve = _aligned_curves(simulation_result, benchmark_result)
     except Exception:

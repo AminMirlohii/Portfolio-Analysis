@@ -224,6 +224,7 @@ export default function App() {
       portfolio: check.portfolio,
       years: Number(years),
       dividends: Boolean(dividends),
+      initial_value: Number(check.startingValue) || 10000,
     };
 
     setLoading(true);
@@ -325,8 +326,8 @@ export default function App() {
             Analysis Horizon & Chart Range
             <select value={years} onChange={(e) => setYears(Number(e.target.value))}>
               <option value={1}>1 year</option>
-              <option value={5}>5</option>
-              <option value={10}>10</option>
+              <option value={5}>5 years</option>
+              <option value={10}>10 years</option>
             </select>
           </label>
 
@@ -388,7 +389,7 @@ export default function App() {
                 <strong>{fmtPct(drawdown, 2)}</strong>
               </div>
               <div className="analytic-pill">
-                <span>Sharpe Ratio</span>
+                <span>Sharpe Ratio (annualized)</span>
                 <strong>{fmtNum(sharpe, 4)}</strong>
               </div>
             </div>
@@ -438,7 +439,7 @@ export default function App() {
                 <ul className="metrics-list">
                   {impliedAllocations.map((a) => (
                     <li key={a.ticker}>
-                      {a.ticker}: ${fmtNum(a.amount, 2)} ({fmtPct(a.weight, 2)})
+                      {a.ticker}: {fmtNum(a.amount, 2)} ({fmtPct(a.weight, 2)})
                     </li>
                   ))}
                 </ul>
