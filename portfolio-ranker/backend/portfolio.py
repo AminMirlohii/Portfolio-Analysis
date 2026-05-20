@@ -111,7 +111,7 @@ def simulate_portfolio(portfolio, years, include_dividends=True, initial_value=1
         values.append(values[-1] * (1 + float(r)))
 
     result = pd.DataFrame({
-        "date": merged["date"].values,
+        "date": all_dates.values,
         "portfolio_value": values,
     })
     requested_start = pd.Timestamp.now().normalize() - pd.DateOffset(years=years)
