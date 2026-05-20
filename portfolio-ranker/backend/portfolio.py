@@ -54,25 +54,21 @@ def validate_portfolio_input(data):
 
 
 def _asset_returns_on_calendar(df: pd.DataFrame, dates: pd.DatetimeIndex, include_dividends: bool) -> pd.Series:
-    """Forward-fill prices on union calendar, then compute daily returns."""
-    aligned = df.set_index("date").reindex(dates).sort_index()
-    price = cast(pd.Series, aligned["price"]).ffill()
-    div = cast(pd.Series, aligned["dividend"]).fillna(0.0)
-
-    if include_dividends:
-        total = price + div
-        ret = total / total.shift(1) - 1
-    else:
-        ret = price.pct_change()
-
-    return cast(pd.Series, ret).fillna(0.0)
+    """
+    Returns on each asset's native calendar, mapped to union dates (0 when that market is closed).
+    Uses adjusted close for total return (matches Yahoo Finance).
+    """
+    col = "adj_price" if include_dividends else "price"
+    native = df.set_index("date").sort_index()
+    native_ret = cast(pd.Series, native[col]).pct_change()
+    aligned = native_ret.reindex(dates)
+    return aligned.fillna(0.0)
 
 
 def simulate_portfolio(portfolio, years, include_dividends=True, initial_value=10000.0):
     """
     Simulate portfolio performance over time.
-    Uses union of all asset trading dates with forward-filled prices (multi-exchange safe).
-    Returns (DataFrame, coverage_info).
+    Uses union of all asset trading dates; returns use Yahoo adjusted close when dividends are on.
     """
     asset_frames = []
     coverage_by_ticker = {}
@@ -92,7 +88,9 @@ def simulate_portfolio(portfolio, years, include_dividends=True, initial_value=1
 
         native = infer_currency(ticker)
         if native != "USD":
-            warnings.append(f"{ticker}: converted from {native} to USD using FX rates.")
+            warnings.append(
+                f"{ticker}: returns are in {native} (listing currency), same basis as Yahoo for that symbol."
+            )
 
         asset_frames.append((df, weight, ticker))
 
@@ -111,9 +109,18 @@ def simulate_portfolio(portfolio, years, include_dividends=True, initial_value=1
         values.append(values[-1] * (1 + float(r)))
 
     result = pd.DataFrame({
-        "date": all_dates.values,
+        "date": all_dates,
         "portfolio_value": values,
     })
+    if len(result) > 0:
+        end = pd.to_datetime(result["date"].max())
+        start = end - pd.DateOffset(years=years)
+        result = result[result["date"] >= start].copy()
+        if len(result) > 0:
+            base = float(cast(pd.Series, result["portfolio_value"]).iloc[0])
+            if base > 0:
+                result["portfolio_value"] = float(initial_value) * result["portfolio_value"] / base
+
     requested_start = pd.Timestamp.now().normalize() - pd.DateOffset(years=years)
     for ticker, first_date_str in coverage_by_ticker.items():
         first_date = pd.to_datetime(first_date_str)

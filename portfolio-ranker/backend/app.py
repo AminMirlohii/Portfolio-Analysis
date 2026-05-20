@@ -28,22 +28,25 @@ def _curve_from_df(df, date_col, value_col):
 
 def _aligned_curves(simulation_result, benchmark_result):
     """
-    Prefer inner-join on calendar day so both curves share the same timeline.
-    If no overlap, fall back to formatting each curve separately.
+    Keep the full portfolio timeline; align benchmark with forward-fill (no SPY-only truncation).
     """
-    s = simulation_result.copy()
-    b = benchmark_result.copy()
+    s = simulation_result.copy().sort_values("date")
+    b = benchmark_result.copy().sort_values("date")
     s["_day"] = _day_key(s["date"])
     b["_day"] = _day_key(b["date"])
-    merged = s.merge(b[["_day", "benchmark_value"]], on="_day", how="inner").sort_values("_day")
-    if merged.empty:
-        return (
-            _curve_from_df(simulation_result, "date", "portfolio_value"),
-            _curve_from_df(benchmark_result, "date", "benchmark_value"),
-        )
-    dates = merged["_day"].dt.strftime("%Y-%m-%d")
-    portfolio_curve = [{"date": d, "value": float(v)} for d, v in zip(dates, merged["portfolio_value"])]
-    benchmark_curve = [{"date": d, "value": float(v)} for d, v in zip(dates, merged["benchmark_value"])]
+
+    portfolio_curve = _curve_from_df(s, "date", "portfolio_value")
+
+    merged = s.merge(b[["_day", "benchmark_value"]], on="_day", how="left")
+    if merged["benchmark_value"].notna().any():
+        merged["benchmark_value"] = merged["benchmark_value"].ffill().bfill()
+        benchmark_curve = [
+            {"date": d, "value": float(v)}
+            for d, v in zip(merged["_day"].dt.strftime("%Y-%m-%d"), merged["benchmark_value"])
+        ]
+    else:
+        benchmark_curve = _curve_from_df(b, "date", "benchmark_value")
+
     return portfolio_curve, benchmark_curve
 
 

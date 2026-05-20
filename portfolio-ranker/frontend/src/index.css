@@ -109,6 +109,13 @@ button:disabled {
   margin-top: 0.6rem;
 }
 
+.input-mode-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+
 .mode-toggle {
   display: grid;
   grid-template-columns: 1fr;

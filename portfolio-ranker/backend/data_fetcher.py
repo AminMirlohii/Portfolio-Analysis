@@ -21,80 +21,41 @@ def infer_currency(ticker: str) -> str:
     return "USD"
 
 
-def _fx_pair_for_currency(currency: str) -> str | None:
-    """Yahoo FX ticker quoting units of `currency` per 1 USD."""
-    if currency == "USD":
-        return None
-    mapping = {
-        "CAD": "USDCAD=X",
-        "GBP": "USDGBP=X",
-        "AUD": "USDAUD=X",
-        "HKD": "USDHKD=X",
-    }
-    return mapping.get(currency)
-
-
-def fetch_fx_to_usd(currency: str, years: int) -> pd.DataFrame:
+def fetch_asset_data(ticker, years):
     """
-    Daily FX for converting local prices to USD.
-    `fx` is units of local currency per 1 USD (e.g. USDCAD). USD price = local / fx.
-    """
-    if currency == "USD":
-        return pd.DataFrame(columns=["date", "fx"])
+    Fetch OHLC history from Yahoo.
+    - price: unadjusted close (price return when dividends off)
+    - adj_price: adjusted close (total return with dividends reinvested; matches Yahoo)
 
-    pair = _fx_pair_for_currency(currency)
-    if pair is None:
-        return pd.DataFrame(columns=["date", "fx"])
-
-    hist = yf.Ticker(pair).history(period=f"{years}y")
-    if hist.empty:
-        return pd.DataFrame(columns=["date", "fx"])
-
-    df = hist.reset_index()
-    df = df.rename(columns={"Date": "date", "Close": "fx"})
-    df["date"] = pd.to_datetime(cast(pd.Series, df["date"])).dt.tz_localize(None)
-    df["fx"] = cast(pd.Series, df["fx"]).astype(float)
-    return df[["date", "fx"]]
-
-
-def fetch_asset_data(ticker, years, target_currency: str = "USD"):
-    """
-    Fetch historical prices and dividends for an asset.
-    Non-US listings are converted to USD using Yahoo FX rates.
-    Returns DataFrame with columns: date, price, dividend.
+    Returns columns: date, price, adj_price, currency
     """
     period = f"{years}y"
     hist = yf.Ticker(ticker).history(period=period, auto_adjust=False)
     if hist.empty:
-        return pd.DataFrame(columns=["date", "price", "dividend"])
+        return pd.DataFrame(columns=["date", "price", "adj_price", "currency"])
 
     df = hist.reset_index()
     df = df.rename(columns={"Date": "date"})
     df["date"] = pd.to_datetime(cast(pd.Series, df["date"])).dt.tz_localize(None)
     df["price"] = cast(pd.Series, df["Close"]).astype(float)
-    if "Dividends" in df.columns:
-        df["dividend"] = cast(pd.Series, df["Dividends"]).fillna(0.0).astype(float)
+    if "Adj Close" in df.columns:
+        df["adj_price"] = cast(pd.Series, df["Adj Close"]).astype(float)
     else:
-        df["dividend"] = 0.0
-
-    df = df[["date", "price", "dividend"]]
-
-    native = infer_currency(ticker)
-    if target_currency == "USD" and native != "USD":
-        fx_df = fetch_fx_to_usd(native, years)
-        if not fx_df.empty:
-            merged = df.merge(fx_df, on="date", how="left")
-            fx_series = cast(pd.Series, merged["fx"]).ffill().bfill()
-            merged["price"] = cast(pd.Series, merged["price"]) / fx_series
-            merged["dividend"] = cast(pd.Series, merged["dividend"]) / fx_series
-            df = merged[["date", "price", "dividend"]]
-
-    return df.copy()
+        df["adj_price"] = df["price"]
+    df["currency"] = infer_currency(ticker)
+    return df[["date", "price", "adj_price", "currency"]].copy()
 
 
 def fetch_benchmark(years):
     """Fetch S&P 500 (SPY) benchmark data."""
     return fetch_asset_data("SPY", years)
+
+
+def _daily_returns(df: pd.DataFrame, include_dividends: bool) -> pd.Series:
+    """Daily simple returns from Yahoo-style series."""
+    col = "adj_price" if include_dividends else "price"
+    series = cast(pd.Series, df[col])
+    return series.pct_change().fillna(0.0)
 
 
 def simulate_benchmark(years, include_dividends=True, initial_value=10000.0):
@@ -103,14 +64,15 @@ def simulate_benchmark(years, include_dividends=True, initial_value=10000.0):
     if benchmark_df.empty:
         return pd.DataFrame(columns=["date", "benchmark_value"])
 
-    if include_dividends:
-        price_series = cast(pd.Series, benchmark_df["price"])
-        dividend_series = cast(pd.Series, benchmark_df["dividend"])
-        total = price_series + dividend_series
-        benchmark_df["return"] = total / total.shift(1) - 1
-    else:
-        price_series = cast(pd.Series, benchmark_df["price"])
-        benchmark_df["return"] = price_series.pct_change()
-    rets = cast(pd.Series, benchmark_df["return"]).fillna(0.0)
+    rets = _daily_returns(benchmark_df, include_dividends)
     benchmark_df["benchmark_value"] = float(initial_value) * (1.0 + rets).cumprod()
-    return benchmark_df[["date", "benchmark_value"]].copy()
+    out = benchmark_df[["date", "benchmark_value"]].copy()
+    if len(out) > 0:
+        end = pd.to_datetime(out["date"].max())
+        start = end - pd.DateOffset(years=years)
+        out = out[out["date"] >= start].copy()
+        if len(out) > 0:
+            base = float(out["benchmark_value"].iloc[0])
+            if base > 0:
+                out["benchmark_value"] = float(initial_value) * out["benchmark_value"] / base
+    return out
